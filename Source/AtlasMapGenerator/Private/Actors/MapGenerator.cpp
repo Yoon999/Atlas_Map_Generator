@@ -67,6 +67,41 @@ bool FNodeTriangle::HasPoint(int32 Point) const
 	return HasPoint(*this, Point);
 }
 
+FString FNodeTriangle::ToString() const
+{
+	return FString::Printf(TEXT("[%d, %d, %d]"), A, B, C);
+}
+
+bool FNodeLine::IsSame(const FNodeLine& Line1, const FNodeLine& Line2)
+{
+	if (Line1.A != Line2.A && Line1.A != Line2.B)
+	{
+		return false;
+	}
+
+	if (Line1.B != Line2.A && Line1.B != Line2.B)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool FNodeLine::HasPoint(const FNodeLine& Line1, int32 Point)
+{
+	if (Point == Line1.A || Point == Line1.B)
+	{
+		return true;
+	}
+
+	return false;
+}
+
+bool FNodeLine::HasPoint(int32 Point) const
+{
+	return HasPoint(*this, Point);
+}
+
 AMapGenerator::AMapGenerator()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -78,8 +113,9 @@ AMapGenerator::AMapGenerator()
 	PersonaBox->SetHiddenInGame(true);
 	PersonaBox->SetLineThickness(Editor_BoxThickness);
 	PersonaBox->ShapeColor = FColor::Red;
-	
-	PersonaBox->SetLinearDamping(100.f);
+
+	PersonaBox->SetSimulatePhysics(false);
+	PersonaBox->SetLinearDamping(10.f);
 	PersonaBox->SetConstraintMode(EDOFMode::SixDOF);
 	PersonaBox->BodyInstance.bLockZTranslation = true;
 	PersonaBox->BodyInstance.bLockXRotation = true;
@@ -113,13 +149,14 @@ void AMapGenerator::ClearRooms()
 	
 	MainRoomArray.Empty();
 	NodeTriangleArray.Empty();
-	TrianglesToIgnore.Empty();
+	NodeLineArray.Empty();
+	UnionRoot.Empty();
 }
 
 void AMapGenerator::BeginPlay()
 {
 	Super::BeginPlay();
-
+	
 	if (RoomContainer.Num() > 0)
 	{
 		ActivateConstraintTimer();
@@ -149,10 +186,9 @@ void AMapGenerator::SpawnRooms(const int32 RoomCount, const FVector2D& EllipseSi
 		Box->SetHiddenInGame(false);
 		Box->SetLineThickness(Editor_BoxThickness);
 		Box->ShapeColor = PersonaBox->ShapeColor;
-		
 		Box->SetSimulatePhysics(true);
 		Box->SetEnableGravity(false);
-		Box->SetLinearDamping(100.f);
+		Box->SetLinearDamping(PersonaBox->GetLinearDamping());
 		Box->SetConstraintMode(EDOFMode::SixDOF);
 		Box->BodyInstance.bLockZTranslation = true;
 		Box->BodyInstance.bLockXRotation = true;
@@ -183,7 +219,7 @@ void AMapGenerator::SpawnRooms(const int32 RoomCount, const FVector2D& EllipseSi
 
 	AverageWidth = WidthSum / RoomCount;
 	AverageHeight = HeightSum / RoomCount;
-
+	
 	ActivateConstraintTimer();
 }
 
@@ -226,16 +262,6 @@ void AMapGenerator::ActivateConstraintTimer()
 					const FVector& ExtentSum = Room->GetScaledBoxExtent() + OverlappingBox->GetScaledBoxExtent();
 					if (!FMath::IsNearlyEqual(ExtentSum.X * ExtentSum.X, Direction.X * Direction.X) && !FMath::IsNearlyEqual(ExtentSum.Y * ExtentSum.Y, Direction.Y * Direction.Y))
 					{
-						if (OverlappingBox == PrevOverlappingBox_Internal)
-						{
-							++OverlappingCount_Internal;
-							UE_LOG(LogTemp, Warning, TEXT("%s Overlapping continuously %d times"), *OverlappingBox->GetName(), OverlappingCount_Internal);
-							if (OverlappingCount_Internal > 10)
-							{
-								continue;
-							}
-						}
-						
 						Room->SetCollisionResponseToChannel(Room->GetCollisionObjectType(), ECR_Block);
 						return;
 					}
@@ -306,7 +332,7 @@ void AMapGenerator::JitterPositionRecursive(UBoxComponent* Room, const int32 Max
 	}
 		
 	ChangeToRectangularDirection(Direction);
-		
+
 	Room->AddRelativeLocation(Direction * Editor_UnitSize * Editor_JitterAmount);
 	Room->SetCollisionResponseToChannel(Room->GetCollisionObjectType(), ECR_Block);
 		
@@ -324,6 +350,10 @@ void AMapGenerator::SelectMainRoom()
 		{
 			Room->ShapeColor = FColor::Cyan;
 			MainRoomArray.Add(Room);
+		}
+		else
+		{
+			Room->SetVisibility(false);
 		}
 	}
 	
@@ -361,12 +391,16 @@ void AMapGenerator::CalculateDelaunayTriangulation()
 			{
 				NodeTriangle.bShouldBeRemoved = true;
 			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Creating Triangle %s"), *NodeTriangle.ToString())
+			}
 		}
 
 		NodeTriangleArray.RemoveAllSwap([](const FNodeTriangle& Tri){ return Tri.bShouldBeRemoved; });
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("Created Triangles : %d"), NodeTriangleArray.Num())
+	UE_LOG(LogTemp, Warning, TEXT("Created Triangles: %d"), NodeTriangleArray.Num())
 
 	if (ULineBatchComponent* const LineBatcher = GetWorld()->PersistentLineBatcher)
 	{
@@ -392,8 +426,8 @@ void AMapGenerator::CalculateCircumscribedCircle(FVector& Result, const FVector&
 	/*
 	 * A(a1, b1), B(a2, b2), C(a3, b3)
 	 * 
-	 * |(a2 - a1) (b2 - b1)| |x| = 0.5 |(a2^2 - a1^2 + b2^2 -b1^2)|
-	 * |(a3 - a2) (b3 - b2)| |y|       |(a3^2 - a2^2 + b3^2 -b2^2)|
+	 * |(a2 - a1) (b2 - b1)| |x| = 0.5 |(a2^2 - a1^2 + b2^2 - b1^2)|
+	 * |(a3 - a2) (b3 - b2)| |y|       |(a3^2 - a2^2 + b3^2 - b2^2)|
 	 *
 	 * m1 = (a2 - a1), n1 = (b2 - b1), o1 = (a2^2 - a1^2 + b2^2 - b1^2)
 	 * m2 = (a3 - a2), n2 = (a3 - a2), o2 = (a3^2 - a2^2 + b3^2 - b2^2)
@@ -448,7 +482,81 @@ void AMapGenerator::CalculateCircumscribedCircle(FVector& Result, const FVector&
 
 void AMapGenerator::CalculateMST()
 {
-	
+	UE_LOG(LogTemp, Warning, TEXT("Starting MST."))
+
+	for (const auto& Triangle : NodeTriangleArray)
+	{
+		NodeLineArray.AddUnique({Triangle.A, Triangle.B});
+		NodeLineArray.AddUnique({Triangle.B, Triangle.C});
+		NodeLineArray.AddUnique({Triangle.C, Triangle.A});
+	}
+
+	for (auto& Line : NodeLineArray)
+	{
+		Line.Length = FVector::DistSquaredXY(NODE_LOCATION(MainRoomArray[Line.A]), NODE_LOCATION(MainRoomArray[Line.B]));
+
+		UnionRoot.Add(Line.A, Line.A);
+		UnionRoot.Add(Line.B, Line.B);
+	}
+
+	NodeLineArray.Sort([](const FNodeLine& Line1, const FNodeLine& Line2){ return Line1.Length < Line2.Length; });
+
+	for (auto& Line : NodeLineArray)
+	{
+		const int32& UnionRootA = UnionFind(Line.A);
+		const int32& UnionRootB = UnionFind(Line.B);
+
+		if (UnionRootA == UnionRootB)
+		{
+			//UE_LOG(LogTemp, Warning, TEXT("Compare Node Root %d(U: %d) == %d(U: %d)"), Line.A, UnionRootA, Line.B, UnionRootB)
+			Line.bShouldBeRemoved = true;
+
+			continue;
+		}
+		
+		if (UnionRootA < UnionRootB)
+		{
+			UnionRoot[UnionRootB] = UnionRootA;
+			UE_LOG(LogTemp, Warning, TEXT("Change Node Union %d(U: %d) : %d(U: %d) => Union %d"), Line.A, UnionRootA, Line.B, UnionRootB, UnionRootA)
+		}
+		else
+		{
+			UnionRoot[UnionRootA] = UnionRootB;
+			UE_LOG(LogTemp, Warning, TEXT("Change Node Union %d(U: %d) : %d(U: %d) => Union %d"), Line.A, UnionRootA, Line.B, UnionRootB, UnionRootB)
+		}
+	}
+
+	if (ULineBatchComponent* const LineBatcher = GetWorld()->PersistentLineBatcher)
+	{
+		LineBatcher->Flush();
+				
+		TArray<FBatchedLine> BatchedLines;
+		for (const FNodeLine& Line : NodeLineArray)
+		{
+			if (Line.bShouldBeRemoved)
+			{
+				BatchedLines.Add({NODE_LOCATION(MainRoomArray[Line.A]), NODE_LOCATION(MainRoomArray[Line.B]), FColor{16,16,16}, -1.f, 30.f, 0, 1});
+			}
+			else
+			{
+				BatchedLines.Add({NODE_LOCATION(MainRoomArray[Line.A]), NODE_LOCATION(MainRoomArray[Line.B]), FColor::Magenta, -1.f, 60.f, 0, 1});
+			}
+		}
+					
+		LineBatcher->DrawLines(BatchedLines);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("MST Finished."))
+}
+
+int32 AMapGenerator::UnionFind(const int32 NodeIndex)
+{
+	if (NodeIndex == UnionRoot[NodeIndex])
+	{
+		return NodeIndex;
+	}
+
+	return UnionRoot[NodeIndex] = UnionFind(UnionRoot[NodeIndex]);
 }
 
 void AMapGenerator::ChangeToRectangularDirection(FVector& Vector)

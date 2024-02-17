@@ -24,7 +24,8 @@ struct FNodeTriangle
 	static bool IsSame(const FNodeTriangle& Tri1, const FNodeTriangle& Tri2);
 	static bool HasSameLine(const FNodeTriangle& Tri1, const FNodeTriangle& Tri2);
 	static bool HasPoint(const FNodeTriangle& Tri1, int32 Point);
-	bool HasPoint(int32 Point) const;;
+	bool HasPoint(int32 Point) const;
+	FString ToString() const;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	int32 A = 0;
@@ -32,6 +33,33 @@ struct FNodeTriangle
 	int32 B = 0;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	int32 C = 0;
+
+	bool bShouldBeRemoved = false;
+};
+
+USTRUCT(BlueprintType, Atomic)
+struct FNodeLine
+{
+	GENERATED_BODY()
+	
+	FNodeLine(){}
+	FNodeLine(int32 InA, int32 InB): A(InA), B(InB) {}
+
+	bool operator==(const FNodeLine& Line) const
+	{
+		return IsSame(*this, Line);
+	}
+
+	static bool IsSame(const FNodeLine& Line1, const FNodeLine& Line2);
+	static bool HasPoint(const FNodeLine& Line1, int32 Point);
+	bool HasPoint(int32 Point) const;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int32 A = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int32 B = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	float Length = 0.f;
 
 	bool bShouldBeRemoved = false;
 };
@@ -80,15 +108,9 @@ protected:
 	UPROPERTY(EditAnywhere)
 	UBoxComponent* PersonaBox;
 	
-	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Generator|container")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Generator|container")
 	TArray<UBoxComponent*> RoomContainer;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generator|container")
-	TArray<FNodeTriangle> NodeTriangleArray;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generator|container")
-	TArray<FNodeTriangle> TrianglesToIgnore;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generator|container")
-	TArray<UBoxComponent*> MainRoomArray;
 private:
 	void SpawnRooms(const int32 RoomCount, const FVector2D& EllipseSize, const int32 UnitSize, const int32 MinRoomSize, const int32 MaxRoomSize);
 	
@@ -99,7 +121,8 @@ private:
 	void CalculateDelaunayTriangulation();
 	void CalculateCircumscribedCircle(FVector& Result, const FVector& A, const FVector& B, const FVector& C); ///@param Result .Z: Radius.
 	
-	void CalculateMST()
+	void CalculateMST();
+	int32 UnionFind(const int32 NodeIndex);
 
 	float AverageWidth;
 	float AverageHeight;
@@ -110,8 +133,11 @@ private:
 	TSet<UBoxComponent*> BoxToIgnoreJitterSet;
 
 	UPROPERTY()
-	UBoxComponent* PrevOverlappingBox_Internal;
-	int32 OverlappingCount_Internal;
+	TArray<UBoxComponent*> MainRoomArray;
+	
+	TArray<FNodeTriangle> NodeTriangleArray;
+	TArray<FNodeLine> NodeLineArray;
+	TMap<int32, int32> UnionRoot;
 
 	static void ChangeToRectangularDirection(FVector& Vector);
 	static void FloorByUnitSize(FVector2D& Point, const int32 UnitSize = 1);
