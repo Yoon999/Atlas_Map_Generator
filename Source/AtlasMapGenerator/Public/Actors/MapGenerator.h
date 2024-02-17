@@ -98,6 +98,8 @@ public:
 	int32 Editor_RecursionCount = 16;
 	UPROPERTY(EditInstanceOnly, Category = "Generator", DisplayName = "Main Room Selection Threshold")
 	float Editor_MainRoomSelectionThreshold = 1.1f;
+	UPROPERTY(EditInstanceOnly, Category = "Generator", DisplayName = "Path Anomaly Percentage")
+	float Editor_PathAnomalyPercentage = 0.08f;
 	
 protected:
 	virtual void BeginPlay() override;
@@ -123,6 +125,8 @@ private:
 	
 	void CalculateMST();
 	int32 UnionFind(const int32 NodeIndex);
+
+	void MakeOrthogonalPath();
 
 	float AverageWidth;
 	float AverageHeight;

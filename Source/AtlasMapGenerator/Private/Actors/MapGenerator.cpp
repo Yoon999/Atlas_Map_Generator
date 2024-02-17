@@ -342,7 +342,7 @@ void AMapGenerator::JitterPositionRecursive(UBoxComponent* Room, const int32 Max
 
 void AMapGenerator::SelectMainRoom()
 {
-	UE_LOG(LogTemp, Warning, TEXT("startig Room Selection"))
+	UE_LOG(LogTemp, Warning, TEXT("startig Main Room Selection"))
 	
 	for (UBoxComponent* Room : RoomContainer)
 	{
@@ -357,7 +357,7 @@ void AMapGenerator::SelectMainRoom()
 		}
 	}
 	
-	UE_LOG(LogTemp, Warning, TEXT("Room Selection Finished."))
+	UE_LOG(LogTemp, Warning, TEXT("Main Room Selection Finished."))
 	CalculateDelaunayTriangulation();
 }
 
@@ -399,7 +399,7 @@ void AMapGenerator::CalculateDelaunayTriangulation()
 
 		NodeTriangleArray.RemoveAllSwap([](const FNodeTriangle& Tri){ return Tri.bShouldBeRemoved; });
 	}
-
+	
 	UE_LOG(LogTemp, Warning, TEXT("Created Triangles: %d"), NodeTriangleArray.Num())
 
 	if (ULineBatchComponent* const LineBatcher = GetWorld()->PersistentLineBatcher)
@@ -526,6 +526,15 @@ void AMapGenerator::CalculateMST()
 		}
 	}
 
+	// restore some paths in the percentage
+	for (auto& Line : NodeLineArray)
+	{
+		if (Line.bShouldBeRemoved && FMath::SRand() < Editor_PathAnomalyPercentage)
+		{
+			Line.bShouldBeRemoved = false;
+		}
+	}
+
 	if (ULineBatchComponent* const LineBatcher = GetWorld()->PersistentLineBatcher)
 	{
 		LineBatcher->Flush();
@@ -546,7 +555,12 @@ void AMapGenerator::CalculateMST()
 		LineBatcher->DrawLines(BatchedLines);
 	}
 
+	NodeLineArray.RemoveAllSwap([](const FNodeLine& Line){ return Line.bShouldBeRemoved; });
+
 	UE_LOG(LogTemp, Warning, TEXT("MST Finished."))
+	FTimerHandle Timer;
+	GetWorldTimerManager().SetTimer(Timer, this, &AMapGenerator::MakeOrthogonalPath, 1.f);
+	//SelectSubRoom();
 }
 
 int32 AMapGenerator::UnionFind(const int32 NodeIndex)
@@ -557,6 +571,92 @@ int32 AMapGenerator::UnionFind(const int32 NodeIndex)
 	}
 
 	return UnionRoot[NodeIndex] = UnionFind(UnionRoot[NodeIndex]);
+}
+
+void AMapGenerator::MakeOrthogonalPath()
+{
+	UE_LOG(LogTemp, Warning, TEXT("startig Sub Room Selection"))
+
+	TArray<FBatchedLine> BatchedLines;
+	for (const auto& Line : NodeLineArray)
+	{
+		const UBoxComponent* NodeA = MainRoomArray[Line.A];
+		const UBoxComponent* NodeB = MainRoomArray[Line.B];
+		const FVector& ExtentA = NodeA->GetScaledBoxExtent();
+		const FVector& ExtentB = NodeB->GetScaledBoxExtent();
+		const FVector& ExtentSum = ExtentA + ExtentB;
+		const FVector& LineDirection = NODE_LOCATION(NodeB) - NODE_LOCATION(NodeA);
+
+		const FVector& SubRoomExtent = ExtentSum - LineDirection.GetAbs();
+
+		FVector RectangularLineDirection = LineDirection;
+		ChangeToRectangularDirection(RectangularLineDirection);
+
+		if (SubRoomExtent.X > Editor_UnitSize * 3)
+		{
+			// draw a vertical line
+			FVector LineStart = NODE_LOCATION(NodeA) + FVector{RectangularLineDirection.X * SubRoomExtent.X * 0.5f, 0.f, 0.f};
+			FVector LineEnd = LineStart + FVector{0.f, LineDirection.Y, 0.f};
+			
+			LineStart.Y += RectangularLineDirection.Y * ExtentA.Y;
+			LineEnd.Y -= RectangularLineDirection.Y * ExtentB.Y;
+			
+			BatchedLines.Add({LineStart, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+			continue;
+		}
+
+		if (SubRoomExtent.Y > Editor_UnitSize * 3)
+		{
+			// draw a horizontal line
+			FVector LineStart = NODE_LOCATION(NodeA) + FVector{0.f, RectangularLineDirection.Y * SubRoomExtent.Y * 0.5f, 0.f};
+			FVector LineEnd = LineStart + FVector{LineDirection.X, 0.f, 0.f};
+			
+			LineStart.X += RectangularLineDirection.X * ExtentA.X;
+			LineEnd.X -= RectangularLineDirection.X * ExtentB.X;
+			
+			BatchedLines.Add({LineStart, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+			continue;
+		}
+
+		if (FMath::SRand() > 0.5f)
+		{
+			
+			// X -> Y
+			FVector LineStart = NODE_LOCATION(NodeA);
+			LineStart.X += RectangularLineDirection.X * ExtentA.X;
+
+			const FVector& LineCorner = NODE_LOCATION(NodeA) + FVector{LineDirection.X, 0.f, 0.f};
+			
+			FVector LineEnd = NODE_LOCATION(NodeB);
+			LineEnd.Y -= RectangularLineDirection.Y * ExtentB.Y;
+			
+			BatchedLines.Add({LineStart, LineCorner, FColor::Orange, -1.f, 60.f, 0, 1});
+			BatchedLines.Add({LineCorner, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+		}
+		else
+		{
+			// Y -> X
+			FVector LineStart = NODE_LOCATION(NodeA);
+			LineStart.Y += RectangularLineDirection.Y * ExtentA.Y;
+
+			const FVector& LineCorner = NODE_LOCATION(NodeA) + FVector{0.f, LineDirection.Y, 0.f};
+			
+			FVector LineEnd = NODE_LOCATION(NodeB);
+			LineEnd.X -= RectangularLineDirection.X * ExtentB.X;
+			
+			BatchedLines.Add({LineStart, LineCorner, FColor::Orange, -1.f, 60.f, 0, 1});
+			BatchedLines.Add({LineCorner, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+		}
+	}
+
+	if (ULineBatchComponent* const LineBatcher = GetWorld()->PersistentLineBatcher)
+	{
+		LineBatcher->Flush();
+		LineBatcher->DrawLines(BatchedLines);
+	}
+
+	
+	UE_LOG(LogTemp, Warning, TEXT("Sub Room Selection Finished."))
 }
 
 void AMapGenerator::ChangeToRectangularDirection(FVector& Vector)
