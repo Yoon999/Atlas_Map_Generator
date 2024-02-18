@@ -128,6 +128,8 @@ private:
 
 	void MakeOrthogonalPath();
 
+	void SelectSubRoom();
+
 	float AverageWidth;
 	float AverageHeight;
 
@@ -138,6 +140,8 @@ private:
 
 	UPROPERTY()
 	TArray<UBoxComponent*> MainRoomArray;
+	UPROPERTY()
+	TArray<UBoxComponent*> SubRoomArray;
 	
 	TArray<FNodeTriangle> NodeTriangleArray;
 	TArray<FNodeLine> NodeLineArray;
@@ -148,6 +152,7 @@ private:
 	static FVector GetRandomPosition(const FVector2D& EllipseSize, const int32 UnitSize = 1);
 	static FVector GetRandomRoomSize(const int32 Min, const int32 Max, const int32 UnitSize);
 	static FVector2D GetRandomPointInEllipse(const float Width, const float Height);
+	static void RoomTraceMultiByChannel(const UWorld* World, TArray<UBoxComponent*>& RoomContainer, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel);
 	bool CheckPositionEmpty(const FVector& Position);
 	
 #define NODE_LOCATION(X) X->GetComponentLocation()

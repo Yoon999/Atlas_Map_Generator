@@ -148,9 +148,11 @@ void AMapGenerator::ClearRooms()
 	RoomContainer.Empty(Editor_RoomCount);
 	
 	MainRoomArray.Empty();
+	SubRoomArray.Empty();
 	NodeTriangleArray.Empty();
 	NodeLineArray.Empty();
 	UnionRoot.Empty();
+	
 }
 
 void AMapGenerator::BeginPlay()
@@ -348,12 +350,15 @@ void AMapGenerator::SelectMainRoom()
 	{
 		if (Room->GetScaledBoxExtent().X > AverageWidth * Editor_MainRoomSelectionThreshold && Room->GetScaledBoxExtent().Y > AverageHeight * Editor_MainRoomSelectionThreshold)
 		{
+			Room->SetCollisionResponseToChannel(Room->GetCollisionObjectType(), ECR_Ignore);
 			Room->ShapeColor = FColor::Cyan;
 			MainRoomArray.Add(Room);
 		}
 		else
 		{
+			Room->SetCollisionResponseToChannel(Room->GetCollisionObjectType(), ECR_Overlap);
 			Room->SetVisibility(false);
+			Room->ShapeColor = FColor::Magenta;
 		}
 	}
 	
@@ -595,26 +600,32 @@ void AMapGenerator::MakeOrthogonalPath()
 		if (SubRoomExtent.X > Editor_UnitSize * 3)
 		{
 			// draw a vertical line
-			FVector LineStart = NODE_LOCATION(NodeA) + FVector{RectangularLineDirection.X * SubRoomExtent.X * 0.5f, 0.f, 0.f};
+			FVector LineStart = NODE_LOCATION(NodeA) + FVector{RectangularLineDirection.X * (ExtentA.X - SubRoomExtent.X * 0.5f), 0.f, 0.f};
 			FVector LineEnd = LineStart + FVector{0.f, LineDirection.Y, 0.f};
 			
 			LineStart.Y += RectangularLineDirection.Y * ExtentA.Y;
 			LineEnd.Y -= RectangularLineDirection.Y * ExtentB.Y;
+
+			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineStart, LineEnd, PersonaBox->GetCollisionObjectType());
 			
 			BatchedLines.Add({LineStart, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+			
 			continue;
 		}
 
 		if (SubRoomExtent.Y > Editor_UnitSize * 3)
 		{
 			// draw a horizontal line
-			FVector LineStart = NODE_LOCATION(NodeA) + FVector{0.f, RectangularLineDirection.Y * SubRoomExtent.Y * 0.5f, 0.f};
+			FVector LineStart = NODE_LOCATION(NodeA) + FVector{0.f, RectangularLineDirection.Y * (ExtentA.Y - SubRoomExtent.Y * 0.5f), 0.f};
 			FVector LineEnd = LineStart + FVector{LineDirection.X, 0.f, 0.f};
 			
 			LineStart.X += RectangularLineDirection.X * ExtentA.X;
 			LineEnd.X -= RectangularLineDirection.X * ExtentB.X;
+
+			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineStart, LineEnd, PersonaBox->GetCollisionObjectType());
 			
 			BatchedLines.Add({LineStart, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+			
 			continue;
 		}
 
@@ -629,6 +640,9 @@ void AMapGenerator::MakeOrthogonalPath()
 			
 			FVector LineEnd = NODE_LOCATION(NodeB);
 			LineEnd.Y -= RectangularLineDirection.Y * ExtentB.Y;
+
+			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineStart, LineCorner, PersonaBox->GetCollisionObjectType());
+			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineCorner, LineEnd, PersonaBox->GetCollisionObjectType());
 			
 			BatchedLines.Add({LineStart, LineCorner, FColor::Orange, -1.f, 60.f, 0, 1});
 			BatchedLines.Add({LineCorner, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
@@ -643,6 +657,9 @@ void AMapGenerator::MakeOrthogonalPath()
 			
 			FVector LineEnd = NODE_LOCATION(NodeB);
 			LineEnd.X -= RectangularLineDirection.X * ExtentB.X;
+
+			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineStart, LineCorner, PersonaBox->GetCollisionObjectType());
+			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineCorner, LineEnd, PersonaBox->GetCollisionObjectType());
 			
 			BatchedLines.Add({LineStart, LineCorner, FColor::Orange, -1.f, 60.f, 0, 1});
 			BatchedLines.Add({LineCorner, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
@@ -654,8 +671,20 @@ void AMapGenerator::MakeOrthogonalPath()
 		LineBatcher->Flush();
 		LineBatcher->DrawLines(BatchedLines);
 	}
-
 	
+	FTimerHandle Timer;
+	GetWorldTimerManager().SetTimer(Timer, this, &AMapGenerator::SelectSubRoom, 1.f);
+}
+
+void AMapGenerator::SelectSubRoom()
+{
+	for (auto Room : SubRoomArray)
+	{
+		//UE_LOG(LogTemp, Warning, TEXT("Sub Room: %s"), *Room->GetName())
+		Room->SetCollisionResponseToChannel(PersonaBox->GetCollisionObjectType(), ECR_Ignore);
+		Room->SetVisibility(true);
+	}
+
 	UE_LOG(LogTemp, Warning, TEXT("Sub Room Selection Finished."))
 }
 
@@ -740,6 +769,22 @@ FVector2D AMapGenerator::GetRandomPointInEllipse(const float Width, const float 
 	Point.Y = Point.Y * Height;
 	
 	return Point;
+}
+
+void AMapGenerator::RoomTraceMultiByChannel(const UWorld* World, TArray<UBoxComponent*>& RoomContainer, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel)
+{
+	TArray<FHitResult> TraceResults;
+
+	World->LineTraceMultiByChannel(TraceResults, Start, End, TraceChannel);
+	for (const FHitResult& HitResult : TraceResults)
+	{
+		//UE_LOG(LogTemp, Warning, TEXT("Trace Result: %s"), *HitResult.ToString())
+		UBoxComponent* Room = Cast<UBoxComponent>(HitResult.GetComponent());
+		if (Room)
+		{
+			RoomContainer.AddUnique(Room);
+		}
+	}
 }
 
 bool AMapGenerator::CheckPositionEmpty(const FVector& Position)
