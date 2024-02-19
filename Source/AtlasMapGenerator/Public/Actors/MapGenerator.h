@@ -6,6 +6,7 @@
 #include "GameFramework/Actor.h"
 #include "MapGenerator.generated.h"
 
+struct FBatchedLine;
 class UBoxComponent;
 
 USTRUCT(BlueprintType, Atomic)
@@ -127,6 +128,7 @@ private:
 	int32 UnionFind(const int32 NodeIndex);
 
 	void MakeOrthogonalPath();
+	void DrawPath(const TArray<FHitResult>& HitResults, TArray<FBatchedLine>& BatchedLines, const FVector& PathStart, const FVector& PathEnd, const float Scalar, EAxis::Type Axis) const;
 
 	void SelectSubRoom();
 
@@ -152,9 +154,12 @@ private:
 	static FVector GetRandomPosition(const FVector2D& EllipseSize, const int32 UnitSize = 1);
 	static FVector GetRandomRoomSize(const int32 Min, const int32 Max, const int32 UnitSize);
 	static FVector2D GetRandomPointInEllipse(const float Width, const float Height);
-	static void RoomTraceMultiByChannel(const UWorld* World, TArray<UBoxComponent*>& RoomContainer, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel);
+	bool RoomTraceMultiByChannel(TArray<FHitResult>& TraceResults, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel, TArray<UBoxComponent*>& OutRoomContainer) const;
 	bool CheckPositionEmpty(const FVector& Position);
 	
-#define NODE_LOCATION(X) X->GetComponentLocation()
+#define NODE_LOCATION(Node) Node->GetComponentLocation()
+#define NODE_EXTENT(Node) Node->GetScaledBoxExtent()
+#define NODE_HALF_WIDTH(Node) Node->GetScaledBoxExtent().X
+#define NODE_HALF_HEIGHT(Node) Node->GetScaledBoxExtent().Y
 #define TRACE_INSIDE_CIRCLE(PosAndRad, V1) ((FVector::DistSquaredXY(PosAndRad, V1)) < (PosAndRad.Z * PosAndRad.Z))
 };

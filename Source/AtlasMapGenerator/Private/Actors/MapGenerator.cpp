@@ -280,7 +280,6 @@ void AMapGenerator::ActivateConstraintTimer()
 		for (UBoxComponent* Room : RoomContainer)
 		{
 			Room->SetSimulatePhysics(false);
-			Room->SetCollisionResponseToChannel(Room->GetCollisionObjectType(), ECR_Ignore);
 		}
 		
 		SelectMainRoom();
@@ -357,8 +356,8 @@ void AMapGenerator::SelectMainRoom()
 		else
 		{
 			Room->SetCollisionResponseToChannel(Room->GetCollisionObjectType(), ECR_Overlap);
-			Room->SetVisibility(false);
-			Room->ShapeColor = FColor::Magenta;
+			//Room->SetVisibility(false);
+			Room->ShapeColor = {128, 128, 128};
 		}
 	}
 	
@@ -587,82 +586,87 @@ void AMapGenerator::MakeOrthogonalPath()
 	{
 		const UBoxComponent* NodeA = MainRoomArray[Line.A];
 		const UBoxComponent* NodeB = MainRoomArray[Line.B];
-		const FVector& ExtentA = NodeA->GetScaledBoxExtent();
-		const FVector& ExtentB = NodeB->GetScaledBoxExtent();
+		const FVector& ExtentA = NODE_EXTENT(NodeA);
+		const FVector& ExtentB = NODE_EXTENT(NodeB);
 		const FVector& ExtentSum = ExtentA + ExtentB;
 		const FVector& LineDirection = NODE_LOCATION(NodeB) - NODE_LOCATION(NodeA);
 
-		const FVector& SubRoomExtent = ExtentSum - LineDirection.GetAbs();
+		const FVector& PathExtent = ExtentSum - LineDirection.GetAbs();
 
 		FVector RectangularLineDirection = LineDirection;
 		ChangeToRectangularDirection(RectangularLineDirection);
 
-		if (SubRoomExtent.X > Editor_UnitSize * 3)
+		if (PathExtent.X > Editor_UnitSize * 3)
 		{
 			// draw a vertical line
-			FVector LineStart = NODE_LOCATION(NodeA) + FVector{RectangularLineDirection.X * (ExtentA.X - SubRoomExtent.X * 0.5f), 0.f, 0.f};
-			FVector LineEnd = LineStart + FVector{0.f, LineDirection.Y, 0.f};
 			
+			FVector LineStart = NODE_LOCATION(NodeA) + FVector{RectangularLineDirection.X * (ExtentA.X - PathExtent.X * 0.5f), 0.f, 0.f};
+			FVector LineEnd = LineStart + FVector{0.f, LineDirection.Y, 0.f};
+
 			LineStart.Y += RectangularLineDirection.Y * ExtentA.Y;
 			LineEnd.Y -= RectangularLineDirection.Y * ExtentB.Y;
 
-			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineStart, LineEnd, PersonaBox->GetCollisionObjectType());
-			
-			BatchedLines.Add({LineStart, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+			TArray<FHitResult> TraceResults;
+			RoomTraceMultiByChannel(TraceResults, LineStart, LineEnd, PersonaBox->GetCollisionObjectType(), SubRoomArray);
+			DrawPath(TraceResults, BatchedLines, LineStart, LineEnd, RectangularLineDirection.Y, EAxis::Y);
 			
 			continue;
 		}
 
-		if (SubRoomExtent.Y > Editor_UnitSize * 3)
+		if (PathExtent.Y > Editor_UnitSize * 3)
 		{
 			// draw a horizontal line
-			FVector LineStart = NODE_LOCATION(NodeA) + FVector{0.f, RectangularLineDirection.Y * (ExtentA.Y - SubRoomExtent.Y * 0.5f), 0.f};
+			
+			FVector LineStart = NODE_LOCATION(NodeA) + FVector{0.f, RectangularLineDirection.Y * (ExtentA.Y - PathExtent.Y * 0.5f), 0.f};
 			FVector LineEnd = LineStart + FVector{LineDirection.X, 0.f, 0.f};
 			
 			LineStart.X += RectangularLineDirection.X * ExtentA.X;
 			LineEnd.X -= RectangularLineDirection.X * ExtentB.X;
 
-			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineStart, LineEnd, PersonaBox->GetCollisionObjectType());
-			
-			BatchedLines.Add({LineStart, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+			TArray<FHitResult> TraceResults;
+			RoomTraceMultiByChannel(TraceResults, LineStart, LineEnd, PersonaBox->GetCollisionObjectType(), SubRoomArray);
+			DrawPath(TraceResults, BatchedLines, LineStart, LineEnd, RectangularLineDirection.X, EAxis::X);
 			
 			continue;
 		}
 
 		if (FMath::SRand() > 0.5f)
 		{
-			
 			// X -> Y
+
 			FVector LineStart = NODE_LOCATION(NodeA);
 			LineStart.X += RectangularLineDirection.X * ExtentA.X;
 
-			const FVector& LineCorner = NODE_LOCATION(NodeA) + FVector{LineDirection.X, 0.f, 0.f};
+			FVector LineCorner = NODE_LOCATION(NodeA) + FVector{LineDirection.X, 0.f, 0.f};
 			
 			FVector LineEnd = NODE_LOCATION(NodeB);
 			LineEnd.Y -= RectangularLineDirection.Y * ExtentB.Y;
 
-			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineStart, LineCorner, PersonaBox->GetCollisionObjectType());
-			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineCorner, LineEnd, PersonaBox->GetCollisionObjectType());
+			TArray<FHitResult> TraceResults;
+			RoomTraceMultiByChannel(TraceResults, LineStart, LineCorner, PersonaBox->GetCollisionObjectType(), SubRoomArray);
+			DrawPath(TraceResults, BatchedLines, LineStart, LineCorner, RectangularLineDirection.X, EAxis::X);
 			
-			BatchedLines.Add({LineStart, LineCorner, FColor::Orange, -1.f, 60.f, 0, 1});
-			BatchedLines.Add({LineCorner, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+			RoomTraceMultiByChannel(TraceResults, LineEnd, LineCorner, PersonaBox->GetCollisionObjectType(), SubRoomArray);
+			DrawPath(TraceResults, BatchedLines, LineEnd, LineCorner, -RectangularLineDirection.Y, EAxis::Y);
 		}
 		else
 		{
 			// Y -> X
+			
 			FVector LineStart = NODE_LOCATION(NodeA);
 			LineStart.Y += RectangularLineDirection.Y * ExtentA.Y;
 
-			const FVector& LineCorner = NODE_LOCATION(NodeA) + FVector{0.f, LineDirection.Y, 0.f};
+			FVector LineCorner = NODE_LOCATION(NodeA) + FVector{0.f, LineDirection.Y, 0.f};
 			
 			FVector LineEnd = NODE_LOCATION(NodeB);
 			LineEnd.X -= RectangularLineDirection.X * ExtentB.X;
 
-			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineStart, LineCorner, PersonaBox->GetCollisionObjectType());
-			RoomTraceMultiByChannel(GetWorld(), SubRoomArray, LineCorner, LineEnd, PersonaBox->GetCollisionObjectType());
+			TArray<FHitResult> TraceResults;
+			RoomTraceMultiByChannel(TraceResults, LineStart, LineCorner, PersonaBox->GetCollisionObjectType(), SubRoomArray);
+			DrawPath(TraceResults, BatchedLines, LineStart, LineCorner, RectangularLineDirection.Y, EAxis::Y);
 			
-			BatchedLines.Add({LineStart, LineCorner, FColor::Orange, -1.f, 60.f, 0, 1});
-			BatchedLines.Add({LineCorner, LineEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+			RoomTraceMultiByChannel(TraceResults, LineEnd, LineCorner, PersonaBox->GetCollisionObjectType(), SubRoomArray);
+			DrawPath(TraceResults, BatchedLines, LineEnd, LineCorner, -RectangularLineDirection.X, EAxis::X);
 		}
 	}
 
@@ -676,12 +680,58 @@ void AMapGenerator::MakeOrthogonalPath()
 	GetWorldTimerManager().SetTimer(Timer, this, &AMapGenerator::SelectSubRoom, 1.f);
 }
 
+void AMapGenerator::DrawPath(const TArray<FHitResult>& HitResults, TArray<FBatchedLine>& BatchedLines, const FVector& PathStart, const FVector& PathEnd, const float Scalar, EAxis::Type Axis) const
+{
+	if (HitResults.Num() <= 0)
+	{
+		BatchedLines.Add({PathStart, PathEnd, FColor::Orange, -1.f, 60.f, 0, 1});
+		return;
+	}
+	
+	for (int32 i = 0; i < HitResults.Num(); ++i)
+	{
+		const FHitResult& Result = HitResults[i];
+		const UBoxComponent* Room = Cast<UBoxComponent>(Result.GetComponent());
+				
+		FVector Start = PathStart;
+		FVector End = PathEnd;
+		if (i > 0)
+		{
+			const UBoxComponent* PrevRoom = Cast<UBoxComponent>(HitResults[i - 1].GetComponent());
+			const float& StartForAxis = PrevRoom->GetComponentLocation().GetComponentForAxis(Axis) + Scalar * NODE_EXTENT(PrevRoom).GetComponentForAxis(Axis);
+			Start.SetComponentForAxis(Axis, StartForAxis);
+		}
+
+		const float& EndForAxis = Room->GetComponentLocation().GetComponentForAxis(Axis) - Scalar * NODE_EXTENT(Room).GetComponentForAxis(Axis);
+		End.SetComponentForAxis(Axis, EndForAxis);
+
+
+		BatchedLines.Add({Start, End, FColor::Orange, -1.f, 60.f, 0, 1});
+	}
+	
+	const UBoxComponent* Room = Cast<UBoxComponent>(HitResults.Last().GetComponent());
+	
+	FVector Start = PathStart;
+	const FVector& End = PathEnd;
+
+	const float& StartForAxis = Room->GetComponentLocation().GetComponentForAxis(Axis) + Scalar * NODE_EXTENT(Room).GetComponentForAxis(Axis);
+	Start.SetComponentForAxis(Axis, StartForAxis);
+	
+	if (Scalar * (End.GetComponentForAxis(Axis) - Start.GetComponentForAxis(Axis)) > 0)
+	{
+		BatchedLines.Add({Start, End, FColor::Orange, -1.f, 60.f, 0, 1});
+	}
+}
+
 void AMapGenerator::SelectSubRoom()
 {
 	for (auto Room : SubRoomArray)
 	{
 		//UE_LOG(LogTemp, Warning, TEXT("Sub Room: %s"), *Room->GetName())
 		Room->SetCollisionResponseToChannel(PersonaBox->GetCollisionObjectType(), ECR_Ignore);
+		
+		Room->SetVisibility(false);
+		Room->ShapeColor = FColor::Magenta;
 		Room->SetVisibility(true);
 	}
 
@@ -771,20 +821,21 @@ FVector2D AMapGenerator::GetRandomPointInEllipse(const float Width, const float 
 	return Point;
 }
 
-void AMapGenerator::RoomTraceMultiByChannel(const UWorld* World, TArray<UBoxComponent*>& RoomContainer, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel)
+bool AMapGenerator::RoomTraceMultiByChannel(TArray<FHitResult>& TraceResults, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel, TArray<UBoxComponent*>& OutRoomContainer) const
 {
-	TArray<FHitResult> TraceResults;
-
-	World->LineTraceMultiByChannel(TraceResults, Start, End, TraceChannel);
+	GetWorld()->LineTraceMultiByChannel(TraceResults, Start, End, TraceChannel);
+	TraceResults.RemoveAllSwap([this](const FHitResult& Result){ return Result.GetActor() != this; });
+	
 	for (const FHitResult& HitResult : TraceResults)
 	{
 		//UE_LOG(LogTemp, Warning, TEXT("Trace Result: %s"), *HitResult.ToString())
-		UBoxComponent* Room = Cast<UBoxComponent>(HitResult.GetComponent());
-		if (Room)
+		if (UBoxComponent* Room = Cast<UBoxComponent>(HitResult.GetComponent()))
 		{
-			RoomContainer.AddUnique(Room);
+			OutRoomContainer.AddUnique(Room);
 		}
 	}
+
+	return TraceResults.Num() > 0;
 }
 
 bool AMapGenerator::CheckPositionEmpty(const FVector& Position)
