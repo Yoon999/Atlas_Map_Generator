@@ -99,8 +99,18 @@ public:
 	int32 Editor_RecursionCount = 16;
 	UPROPERTY(EditInstanceOnly, Category = "Generator", DisplayName = "Main Room Selection Threshold")
 	float Editor_MainRoomSelectionThreshold = 1.1f;
-	UPROPERTY(EditInstanceOnly, Category = "Generator", DisplayName = "Path Anomaly Percentage")
+	UPROPERTY(EditInstanceOnly, Category = "Generator", DisplayName = "Path Anomaly Percentage", meta = (ClampMin = "0", ClampMax = "1"))
 	float Editor_PathAnomalyPercentage = 0.08f;
+
+	UPROPERTY(EditAnywhere, Category = "Generator", DisplayName = "Floor Mesh")
+	UStaticMesh* FloorMesh;
+	UPROPERTY(EditAnywhere, Category = "Generator", DisplayName = "Floor Material")
+	UMaterialInterface* FloorMaterial;
+	
+	UPROPERTY(EditAnywhere, Category = "Generator", DisplayName = "Wall Mesh")
+	UStaticMesh* WallMesh;
+	UPROPERTY(EditAnywhere, Category = "Generator", DisplayName = "Wall Material")
+	UMaterialInterface* WallMaterial;
 	
 protected:
 	virtual void BeginPlay() override;
@@ -122,13 +132,15 @@ private:
 
 	void SelectMainRoom();
 	void CalculateDelaunayTriangulation();
-	void CalculateCircumscribedCircle(FVector& Result, const FVector& A, const FVector& B, const FVector& C); ///@param Result .Z: Radius.
+	
+	///@param Result .Z: Radius.
+	void CalculateCircumscribedCircle(FVector& Result, const FVector& A, const FVector& B, const FVector& C); 
 	
 	void CalculateMST();
 	int32 UnionFind(const int32 NodeIndex);
 
 	void MakeOrthogonalPath();
-	void DrawPath(const TArray<FHitResult>& HitResults, TArray<FBatchedLine>& BatchedLines, const FVector& PathStart, const FVector& PathEnd, const float Scalar, EAxis::Type Axis) const;
+	void DrawPath(const TArray<FHitResult>& HitResults, TArray<FBatchedLine>& BatchedLines, const FVector& PathStart, const FVector& PathEnd) const;
 
 	void SelectSubRoom();
 
@@ -154,7 +166,7 @@ private:
 	static FVector GetRandomPosition(const FVector2D& EllipseSize, const int32 UnitSize = 1);
 	static FVector GetRandomRoomSize(const int32 Min, const int32 Max, const int32 UnitSize);
 	static FVector2D GetRandomPointInEllipse(const float Width, const float Height);
-	bool RoomTraceMultiByChannel(TArray<FHitResult>& TraceResults, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel, TArray<UBoxComponent*>& OutRoomContainer) const;
+	bool RoomTraceMultiByChannel(TArray<FHitResult>& TraceResults, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel, TArray<UBoxComponent*>& OutRoomContainer, TArray<UBoxComponent*>& RoomsToIgnore) const;
 	bool CheckPositionEmpty(const FVector& Position);
 	
 #define NODE_LOCATION(Node) Node->GetComponentLocation()
